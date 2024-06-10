@@ -140,12 +140,13 @@ def allDataOfChannel(channel_id):
     VD_Ids_details=video_ids_scraping(channel_id)
     VD_details=video_info(VD_Ids_details)
     CM_details=comment_scraping(VD_Ids_details)
-
-    collection1=db['Channel_Details']
-    collection1.insert_one({'Channel_information':CH_details,'Playlist_information':PL_details,
-                            'Videos_information':VD_details,'Comments_information':CM_details})
-    
-    return "UPLOADED"
+    try:
+        collection1=db['Channel_Details']
+        collection1.insert_one({'Channel_information':CH_details,'Playlist_information':PL_details,
+                                'Videos_information':VD_details,'Comments_information':CM_details})
+    except Exception as e:
+        print("Error inserting into MongoDB:", e)
+    return "Successfully uploaded!"
 
 #SQL connection and table creation 
 # #CHANNEL TABLE
