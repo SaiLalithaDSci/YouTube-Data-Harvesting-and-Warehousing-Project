@@ -1,19 +1,20 @@
 ##### PACKAGES #####
-
 import streamlit as st
 from googleapiclient.discovery import build
 import psycopg2
 import pandas as pd
+import datetime
 
 # API key connection
 def api_connect():
-    api_id = "AIzaSyCllCn7Ak2Dlncxl-3NuL5n-ePM22Y3tT8"
+    api_id = "your_api_key"
     api_service_name = "youtube"
     api_version = "v3"
     youtube = build(api_service_name, api_version, developerKey=api_id)
     return youtube
 
 youtube = api_connect()
+
 
 # Channel info
 def channel_details_scrape(channel_id):
@@ -29,6 +30,7 @@ def channel_details_scrape(channel_id):
                                       channel_views=i['statistics']['viewCount'],
                                       channel_playList_id=i['contentDetails']['relatedPlaylists']['uploads'])
     return channel_scrape_details
+
 
 # Video ids scraping
 def video_ids_scraping(channel_id):
@@ -126,7 +128,7 @@ def playlist_details_scraping(channel_id):
 def connect_to_db():
     my_db = psycopg2.connect(host='localhost',
                              user='postgres',
-                             password='sailalitha',
+                             password='your_password',
                              database='YouTube_Data',
                              port='5432')
     return my_db
@@ -264,6 +266,12 @@ def allDataOfChannel(channel_id):
     cursor.close()
     my_db.close()
 
+def channel_exists(cursor, channel_id):
+    check_query = "SELECT COUNT(*) FROM channels WHERE channel_id = %s"
+    cursor.execute(check_query, (channel_id,))
+    return cursor.fetchone()[0] > 0
+
+
 # Streamlit app
 def main():
     with st.sidebar:
@@ -278,10 +286,44 @@ def main():
         st.caption("DEPLOYMENT AND MAINTENANCE: Deploy and maintain the application, ensuring scalability and security.")
 
     channel_id = st.text_input("Enter the Channel Id of the Channel you want to get information of:")
+    scrape=st.button("Collect and store the data of the given channel!")
 
-    if st.button("Collect and store the data of the given channel!"):
+    my_db = connect_to_db()
+    cursor = my_db.cursor()
+    
+    if channel_exists(cursor, channel_id):
+        st.warning("This channel ID exists.")
+        delete = st.button("Delete this channel's existing details!")
+        if delete:
+            try:
+                cursor = my_db.cursor()
+                #the deleting process goes from comments table->videos table->playlists table->channel table
+                # Delete from comments where video_id is in videos with the given channel_id
+                cursor.execute("""DELETE FROM comments WHERE Video_Id_Comment IN (SELECT VideoId FROM videos WHERE ChannelId = %s)""", (channel_id,))
+                
+                # Delete from videos where channel_id matches
+                cursor.execute("DELETE FROM videos WHERE ChannelId = %s", (channel_id,))
+                
+                # Delete from playlists where channelId_of_playlist matches
+                cursor.execute("DELETE FROM playlists WHERE channelId_of_playlist = %s", (channel_id,))
+                
+                # Finally, delete from channels where channel_id matches
+                cursor.execute("DELETE FROM channels WHERE channel_id = %s", (channel_id,))
+
+                # Commit the changes after successful deletion
+                my_db.commit()
+                st.success("Data deleted successfully.")
+            except Exception as e:
+                my_db.rollback()  # Rollback changes in case of error
+                st.error(f"An error occurred: {e}")
+            finally:
+                cursor.close()
+                my_db.close()
+
+    elif scrape:
         allDataOfChannel(channel_id)
-        st.success("Data collected and stored successfully!")
+        st.success("Data inserted successfully!")
+        
 
     # Radio button for data display
     data_display = st.radio("Select the data you want to display:",
@@ -406,19 +448,30 @@ def main():
 
     # Question 9
     elif Query_Questions == "9. Average duration of all videos in each channel and the channel names.":
-        Query9 = '''select ChannelName as channelname, AVG(Duration) as average_duration from videos
+        Query9 = '''select ChannelName as channelname, AVG(Duration) as average_duration_seconds from videos
                     group by ChannelName'''
         cursor.execute(Query9)
         T9 = cursor.fetchall()
-        dfT9 = pd.DataFrame(T9, columns=["channel name", "AVG duration of videos"])
+
         t9 = []
-        for index, row in dfT9.iterrows():
-            channel_name = row["channel name"]
-            average_duration = row["AVG duration of videos"]
-            Avg_duration = str(average_duration)
-            t9.append(dict(channelname=channel_name, avgduration=Avg_duration))
-        dft9 = pd.DataFrame(t9)
-        st.write(dft9)
+        for row in T9:
+            channel_name = row[0]
+            average_duration_seconds = row[1]
+
+            # Convert average_duration_seconds to total seconds
+            total_seconds = average_duration_seconds.total_seconds()
+
+            # Calculate hours and minutes from total seconds
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+
+            # Construct the average duration string
+            avg_duration = f"{hours} hours {minutes} minutes"
+
+            t9.append({"channelname": channel_name, "avgduration": avg_duration})
+
+        dfT9 = pd.DataFrame(t9)
+        st.write(dfT9)
 
     # Question 10
     elif Query_Questions == "10. Videos with highest comment count and their channel names.":
@@ -434,4 +487,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-#########################################################################################################################################
+    
+                                            ########## END OF PROGRAM ##########
