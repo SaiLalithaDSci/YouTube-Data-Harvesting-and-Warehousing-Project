@@ -1,4 +1,4 @@
-##### PACKAGES #####
+# Packages to import
 import streamlit as st
 from googleapiclient.discovery import build
 import psycopg2
@@ -7,7 +7,7 @@ import datetime
 
 # API key connection
 def api_connect():
-    api_id = "your_api_key"
+    api_id = "your_api_key" # change with your api key
     api_service_name = "youtube"
     api_version = "v3"
     youtube = build(api_service_name, api_version, developerKey=api_id)
@@ -15,6 +15,7 @@ def api_connect():
 
 youtube = api_connect()
 
+# Scraping Functions
 
 # Channel info
 def channel_details_scrape(channel_id):
@@ -128,7 +129,7 @@ def playlist_details_scraping(channel_id):
 def connect_to_db():
     my_db = psycopg2.connect(host='localhost',
                              user='postgres',
-                             password='your_password',
+                             password='your_password', # change with your password
                              database='YouTube_Data',
                              port='5432')
     return my_db
@@ -266,6 +267,151 @@ def allDataOfChannel(channel_id):
     cursor.close()
     my_db.close()
 
+# Function to Update details of given Channel
+def update_channel(channel_id):
+
+    CH_details = channel_details_scrape(channel_id)
+    PL_details = playlist_details_scraping(channel_id)
+    VD_Ids_details = video_ids_scraping(channel_id)
+    VD_details = video_info(VD_Ids_details)
+    CM_details = comment_scraping(VD_Ids_details)
+    
+    # Insert into PostgreSQL
+    my_db = connect_to_db()
+    cursor = my_db.cursor()
+    
+
+    # Insert or update channels
+    insert_channel_query = '''
+        INSERT INTO channels(
+            channel_title,
+            channel_id,
+            channel_description,
+            channel_published_date,
+            channel_subscribers,
+            channel_videos,
+            channel_views,
+            channel_playList_id
+        ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (channel_id) DO UPDATE SET
+            channel_title = EXCLUDED.channel_title,
+            channel_description = EXCLUDED.channel_description,
+            channel_published_date = EXCLUDED.channel_published_date,
+            channel_subscribers = EXCLUDED.channel_subscribers,
+            channel_videos = EXCLUDED.channel_videos,
+            channel_views = EXCLUDED.channel_views,
+            channel_playList_id = EXCLUDED.channel_playList_id
+    '''
+    channel_values = (
+        CH_details['channel_title'], 
+        CH_details['channel_id'], 
+        CH_details['channel_description'],
+        CH_details['channel_published_date'], 
+        CH_details['channel_subscribers'], 
+        CH_details['channel_videos'],
+        CH_details['channel_views'], 
+        CH_details['channel_playList_id']
+    )
+    cursor.execute(insert_channel_query, channel_values)
+
+    # Insert or update playlists
+    insert_playlist_query = '''
+        INSERT INTO playlists(
+            id_of_playlist,
+            title_of_playlist,
+            channelId_of_playlist,
+            publishedAt_of_playlist,
+            channelName_of_playlist,
+            no_of_videos
+        ) VALUES(%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id_of_playlist) DO UPDATE SET
+            title_of_playlist = EXCLUDED.title_of_playlist,
+            channelId_of_playlist = EXCLUDED.channelId_of_playlist,
+            publishedAt_of_playlist = EXCLUDED.publishedAt_of_playlist,
+            channelName_of_playlist = EXCLUDED.channelName_of_playlist,
+            no_of_videos = EXCLUDED.no_of_videos
+    '''
+    for playlist in PL_details:
+        playlist_values = (
+            playlist['id_of_playlist'], 
+            playlist['title_of_playlist'], 
+            playlist['channelId_of_playlist'],
+            playlist['publishedAt_of_playlist'], 
+            playlist['channelName_of_playlist'], 
+            playlist['no_of_videos']
+        )
+        cursor.execute(insert_playlist_query, playlist_values)
+
+    # Insert or update videos
+    insert_video_query = '''
+        INSERT INTO videos(
+            ChannelName,
+            ChannelId,
+            VideoId,
+            Title,
+            Tags,
+            Thumbnail,
+            Description,
+            PublishedDate,
+            Duration,
+            Views,
+            Likes,
+            Comments,
+            FavouriteCount,
+            Definition,
+            CaptionStatus
+        ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (VideoId) DO UPDATE SET
+            ChannelName = EXCLUDED.ChannelName,
+            ChannelId = EXCLUDED.ChannelId,
+            Title = EXCLUDED.Title,
+            Tags = EXCLUDED.Tags,
+            Thumbnail = EXCLUDED.Thumbnail,
+            Description = EXCLUDED.Description,
+            PublishedDate = EXCLUDED.PublishedDate,
+            Duration = EXCLUDED.Duration,
+            Views = EXCLUDED.Views,
+            Likes = EXCLUDED.Likes,
+            Comments = EXCLUDED.Comments,
+            FavouriteCount = EXCLUDED.FavouriteCount,
+            Definition = EXCLUDED.Definition,
+            CaptionStatus = EXCLUDED.CaptionStatus
+    '''
+    for video in VD_details:
+        video_values = (
+            video['ChannelName'], video['ChannelId'], video['VideoId'], video['Title'], video['Tags'], video['Thumbnail'],
+            video['Description'], video['PublishedDate'], video['Duration'], video['Views'], video['Likes'],
+            video['Comments'], video['FavouriteCount'], video['Definition'], video['CaptionStatus']
+        )
+        cursor.execute(insert_video_query, video_values)
+
+    # Insert or update comments
+    insert_comment_query = '''
+        INSERT INTO comments(
+            Comment_id,
+            Video_Id_Comment,
+            Comment_text,
+            Comment_author,
+            Comment_publishedAt
+        ) VALUES(%s, %s, %s, %s, %s)
+        ON CONFLICT (Comment_id) DO UPDATE SET
+            Video_Id_Comment = EXCLUDED.Video_Id_Comment,
+            Comment_text = EXCLUDED.Comment_text,
+            Comment_author = EXCLUDED.Comment_author,
+            Comment_publishedAt = EXCLUDED.Comment_publishedAt
+    '''
+    for comment in CM_details:
+        comment_values = (
+            comment['Comment_id'], comment['Video_Id_Comment'], comment['Comment_text'],
+            comment['Comment_author'], comment['Comment_publishedAt']
+        )
+        cursor.execute(insert_comment_query, comment_values)
+
+    my_db.commit()
+    cursor.close()
+    my_db.close()
+
+# Function to check the existence of channel
 def channel_exists(cursor, channel_id):
     check_query = "SELECT COUNT(*) FROM channels WHERE channel_id = %s"
     cursor.execute(check_query, (channel_id,))
@@ -294,10 +440,11 @@ def main():
     if channel_exists(cursor, channel_id):
         st.warning("This channel ID exists.")
         delete = st.button("Delete this channel's existing details!")
+        update=st.button("Update the details of this channel!")
         if delete:
             try:
                 cursor = my_db.cursor()
-                #the deleting process goes from comments table->videos table->playlists table->channel table
+
                 # Delete from comments where video_id is in videos with the given channel_id
                 cursor.execute("""DELETE FROM comments WHERE Video_Id_Comment IN (SELECT VideoId FROM videos WHERE ChannelId = %s)""", (channel_id,))
                 
@@ -319,6 +466,10 @@ def main():
             finally:
                 cursor.close()
                 my_db.close()
+
+        elif update:
+            update_channel(channel_id)
+            st.success("Data updated successfully!")
 
     elif scrape:
         allDataOfChannel(channel_id)
@@ -487,5 +638,18 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-                                            ########## END OF PROGRAM ##########
+
+############################################################################################################################
+# CHANNEL IDs - Sample #
+###########################################################################################################################
+#UCOEXdtfmcbGuEXS2BFKrakA - milktpapi - DONE
+#UCPPiXnNKnaIP7RG9T3NIgvA - tiffany design studio - DONE
+#UCZUUZFex6AaIU4QTopFudYA - growwithjo - DONE
+#UCb_gdTMC2xeuO1p8lKkZHHQ - forestella - DONE
+#UCBGW2LRJII6pabgBuPrOKjw - annika hinds - DONE
+#UCwr-evhuzGZgDFrq_1pLt_A - error makes clever - DONE
+#UCb7q-fXh21T-pq02dC9H3xg - one pact - DONE
+#UCayvNWo8eZS8HJL2TSV_x7w - kennysong - DONE
+#UC3eHNTyqjQLkZcrye3tXaqQ - pickles and wine - DONE
+#UC1v4DD_Ma63_wzHx4jAGklA - william seng - DONE
+###########################################################################################################################
